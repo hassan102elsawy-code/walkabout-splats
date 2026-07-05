@@ -82,10 +82,14 @@ export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()(
       { title: "3D Walkthrough — Tour apartments in 3D from your phone" },
       { name: "description", content: "Turn a few photos or a short video of an apartment into an immersive 3D walkthrough you can share." },
       { name: "author", content: "3D Walkthrough" },
-      { property: "og:title", content: "3D Walkthrough" },
+      { property: "og:title", content: "3D Walkthrough — Tour apartments in 3D from your phone" },
       { property: "og:description", content: "Turn a few photos or a short video of an apartment into an immersive 3D walkthrough you can share." },
       { property: "og:type", content: "website" },
       { name: "twitter:card", content: "summary_large_image" },
+      { name: "twitter:title", content: "3D Walkthrough — Tour apartments in 3D from your phone" },
+      { name: "twitter:description", content: "Turn a few photos or a short video of an apartment into an immersive 3D walkthrough you can share." },
+      { property: "og:image", content: "https://pub-bb2e103a32db4e198524a2e9ed8f35b4.r2.dev/875e8f45-897f-434f-9c9e-4565854e75b2/id-preview-2cc1b742--fb7f98d7-3c24-4055-9a9a-bc6fcdd13357.lovable.app-1783261591687.png" },
+      { name: "twitter:image", content: "https://pub-bb2e103a32db4e198524a2e9ed8f35b4.r2.dev/875e8f45-897f-434f-9c9e-4565854e75b2/id-preview-2cc1b742--fb7f98d7-3c24-4055-9a9a-bc6fcdd13357.lovable.app-1783261591687.png" },
     ],
     links: [
       {
