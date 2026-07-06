@@ -101,17 +101,22 @@ function TourView() {
             </div>
 
             {tour.status === "ready" && tour.embed_url ? (
-              <div className="overflow-hidden rounded-2xl border bg-black">
-                <div className="relative aspect-[4/5] sm:aspect-video">
-                  <iframe
-                    src={tour.embed_url}
-                    title={tour.title}
-                    className="absolute inset-0 h-full w-full"
-                    allow="fullscreen; xr-spatial-tracking; gyroscope; accelerometer"
-                    allowFullScreen
-                  />
+              <Card className="flex flex-col items-center gap-4 p-10 text-center">
+                <div className="inline-flex h-12 w-12 items-center justify-center rounded-full bg-emerald-500/10 text-emerald-600">
+                  <CheckCircle2 className="h-6 w-6" />
                 </div>
-              </div>
+                <div>
+                  <p className="font-medium">Your 3D model is ready</p>
+                  <p className="mt-1 text-sm text-muted-foreground">
+                    KIRI Engine finished the reconstruction. Download the zipped Gaussian Splat / mesh below.
+                  </p>
+                </div>
+                <Button asChild>
+                  <a href={tour.embed_url} target="_blank" rel="noreferrer">
+                    Download 3D model (.zip)
+                  </a>
+                </Button>
+              </Card>
             ) : tour.status === "failed" ? (
               <Card className="flex flex-col items-center gap-3 p-10 text-center">
                 <div className="inline-flex h-12 w-12 items-center justify-center rounded-full bg-destructive/10 text-destructive">
@@ -130,7 +135,7 @@ function TourView() {
                 <div>
                   <p className="font-medium">Building your 3D walkthrough…</p>
                   <p className="mt-1 text-sm text-muted-foreground">
-                    Luma AI is turning your capture into a 3D Gaussian Splat scene.
+                    KIRI Engine is turning your capture into a 3D Gaussian Splat scene.
                     This usually takes a few minutes — you can safely leave this page.
                   </p>
                 </div>
