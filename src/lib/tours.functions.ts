@@ -4,7 +4,6 @@ import { requireSupabaseAuth } from "@/integrations/supabase/auth-middleware";
 
 const CreateTourInput = z.object({
   title: z.string().min(1).max(120),
-  fileNames: z.array(z.string().min(1)).min(1).max(200),
   captureType: z.enum(["photos", "video"]),
 });
 
@@ -12,26 +11,12 @@ export const createTour = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
   .inputValidator((data) => CreateTourInput.parse(data))
   .handler(async ({ data, context }) => {
-    const { LumaProviderError, lumaCreateCapture } = await import("./luma.server");
-    const luma = await lumaCreateCapture(data).catch((error) => {
-      if (error instanceof LumaProviderError) {
-        return { error: error.message } as const;
-      }
-      throw error;
-    });
-
-    if ("error" in luma) {
-      return { ok: false as const, error: luma.error };
-    }
-
     const { data: tour, error } = await context.supabase
       .from("tours")
       .insert({
         user_id: context.userId,
         title: data.title,
         status: "uploading",
-        luma_slug: luma.capture.slug,
-        luma_capture_id: luma.capture.slug,
       })
       .select("id")
       .single();
@@ -40,8 +25,6 @@ export const createTour = createServerFn({ method: "POST" })
     return {
       ok: true as const,
       tourId: tour.id as string,
-      slug: luma.capture.slug,
-      signedUrls: luma.signedUrls,
     };
   });
 
@@ -49,32 +32,62 @@ const TourIdInput = z.object({ tourId: z.string().uuid() });
 
 export const startProcessing = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
-  .inputValidator((data) => z.object({ tourId: z.string().uuid(), sourcePaths: z.array(z.string()) }).parse(data))
+  .inputValidator((data) =>
+    z
+      .object({
+        tourId: z.string().uuid(),
+        sourcePaths: z.array(z.string()).min(1),
+        captureType: z.enum(["photos", "video"]),
+      })
+      .parse(data),
+  )
   .handler(async ({ data, context }) => {
     const { data: tour, error } = await context.supabase
       .from("tours")
-      .select("luma_slug")
+      .select("id, user_id")
       .eq("id", data.tourId)
       .maybeSingle();
-    if (error || !tour?.luma_slug) throw new Error("Tour not found");
+    if (error || !tour) throw new Error("Tour not found");
 
-    const { LumaProviderError, lumaTriggerProcess } = await import("./luma.server");
+    const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
+    const { kiriUploadPhotos, kiriUploadVideo } = await import("./kiri.server");
+
+    // Fetch uploaded files from Supabase Storage (private bucket) via service role.
+    const downloaded: Array<{ name: string; blob: Blob }> = [];
+    for (const path of data.sourcePaths) {
+      const { data: file, error: dlErr } = await supabaseAdmin.storage
+        .from("tour-uploads")
+        .download(path);
+      if (dlErr || !file) throw new Error(`Failed to load ${path}: ${dlErr?.message ?? "no data"}`);
+      downloaded.push({ name: path.split("/").pop() ?? "file", blob: file });
+    }
+
+    let serialize: string;
     try {
-      await lumaTriggerProcess(tour.luma_slug);
-    } catch (error) {
-      if (error instanceof LumaProviderError) {
-        await context.supabase
-          .from("tours")
-          .update({ status: "failed", source_paths: data.sourcePaths, error_message: error.message })
-          .eq("id", data.tourId);
-        return { ok: false as const, error: error.message };
+      if (data.captureType === "video") {
+        const res = await kiriUploadVideo({ file: downloaded[0] });
+        serialize = res.serialize;
+      } else {
+        const res = await kiriUploadPhotos({ files: downloaded });
+        serialize = res.serialize;
       }
-      throw error;
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "KIRI upload failed";
+      await context.supabase
+        .from("tours")
+        .update({ status: "failed", source_paths: data.sourcePaths, error_message: message })
+        .eq("id", data.tourId);
+      return { ok: false as const, error: message };
     }
 
     const { error: updErr } = await context.supabase
       .from("tours")
-      .update({ status: "processing", source_paths: data.sourcePaths })
+      .update({
+        status: "processing",
+        source_paths: data.sourcePaths,
+        luma_slug: serialize,
+        luma_capture_id: serialize,
+      })
       .eq("id", data.tourId);
     if (updErr) throw new Error(updErr.message);
 
@@ -118,29 +131,29 @@ export const pollTour = createServerFn({ method: "POST" })
     if (error || !tour) throw new Error("Tour not found");
     if (tour.status === "ready" || tour.status === "failed" || !tour.luma_slug) return tour;
 
-    const { lumaGetCapture, lumaEmbedUrl } = await import("./luma.server");
+    const { kiriGetStatus, kiriGetModelZip } = await import("./kiri.server");
     try {
-      const res = await lumaGetCapture(tour.luma_slug);
-      const runStatus = (res.latestRun?.status ?? "").toLowerCase();
-      const artifacts = res.latestRun?.artifacts ?? [];
-      const thumb = artifacts.find((a) => a.type === "thumb" || a.type === "thumbnail")?.url;
-
-      if (runStatus === "finished" || runStatus === "complete" || runStatus === "completed") {
-        const embed = lumaEmbedUrl(tour.luma_slug);
+      const { status } = await kiriGetStatus(tour.luma_slug);
+      // 3 = successful, 2 = failed, 5 = expired
+      if (status === 3) {
+        const { modelUrl } = await kiriGetModelZip(tour.luma_slug);
         const { data: updated } = await context.supabase
           .from("tours")
-          .update({ status: "ready", embed_url: embed, thumbnail_url: thumb ?? null })
+          .update({ status: "ready", embed_url: modelUrl })
           .eq("id", tour.id)
           .select("id, status, embed_url, thumbnail_url, luma_slug")
           .single();
         return updated ?? tour;
       }
-      if (runStatus === "failed" || runStatus === "error") {
-        await context.supabase.from("tours").update({ status: "failed", error_message: "Luma processing failed" }).eq("id", tour.id);
+      if (status === 2 || status === 5) {
+        await context.supabase
+          .from("tours")
+          .update({ status: "failed", error_message: status === 5 ? "Model expired" : "KIRI processing failed" })
+          .eq("id", tour.id);
         return { ...tour, status: "failed" as const };
       }
       return tour;
-    } catch (e) {
+    } catch {
       // transient — leave status untouched
       return tour;
     }
