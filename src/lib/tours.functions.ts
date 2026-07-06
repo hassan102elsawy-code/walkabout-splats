@@ -12,8 +12,17 @@ export const createTour = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
   .inputValidator((data) => CreateTourInput.parse(data))
   .handler(async ({ data, context }) => {
-    const { lumaCreateCapture } = await import("./luma.server");
-    const luma = await lumaCreateCapture(data);
+    const { LumaProviderError, lumaCreateCapture } = await import("./luma.server");
+    const luma = await lumaCreateCapture(data).catch((error) => {
+      if (error instanceof LumaProviderError) {
+        return { error: error.message } as const;
+      }
+      throw error;
+    });
+
+    if ("error" in luma) {
+      return { ok: false as const, error: luma.error };
+    }
 
     const { data: tour, error } = await context.supabase
       .from("tours")
@@ -29,6 +38,7 @@ export const createTour = createServerFn({ method: "POST" })
     if (error) throw new Error(error.message);
 
     return {
+      ok: true as const,
       tourId: tour.id as string,
       slug: luma.capture.slug,
       signedUrls: luma.signedUrls,
@@ -48,8 +58,19 @@ export const startProcessing = createServerFn({ method: "POST" })
       .maybeSingle();
     if (error || !tour?.luma_slug) throw new Error("Tour not found");
 
-    const { lumaTriggerProcess } = await import("./luma.server");
-    await lumaTriggerProcess(tour.luma_slug);
+    const { LumaProviderError, lumaTriggerProcess } = await import("./luma.server");
+    try {
+      await lumaTriggerProcess(tour.luma_slug);
+    } catch (error) {
+      if (error instanceof LumaProviderError) {
+        await context.supabase
+          .from("tours")
+          .update({ status: "failed", source_paths: data.sourcePaths, error_message: error.message })
+          .eq("id", data.tourId);
+        return { ok: false as const, error: error.message };
+      }
+      throw error;
+    }
 
     const { error: updErr } = await context.supabase
       .from("tours")
@@ -57,7 +78,7 @@ export const startProcessing = createServerFn({ method: "POST" })
       .eq("id", data.tourId);
     if (updErr) throw new Error(updErr.message);
 
-    return { ok: true };
+    return { ok: true as const };
   });
 
 export const listTours = createServerFn({ method: "GET" })
