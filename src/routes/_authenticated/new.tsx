@@ -50,9 +50,17 @@ function NewTour() {
     setPhase("Preparing…");
     try {
       const fileNames = files.map((f, i) => `${String(i).padStart(3, "0")}_${f.name.replace(/[^\w.\-]+/g, "_")}`);
-      const { tourId, signedUrls } = await create({
+      const created = await create({
         data: { title: title.trim(), fileNames, captureType: mode },
       });
+      if (!created.ok) {
+        toast.error(created.error, { duration: 12000 });
+        setBusy(false);
+        setProgress(0);
+        setPhase("");
+        return;
+      }
+      const { tourId, signedUrls } = created;
 
       const { data: userData } = await supabase.auth.getUser();
       const userId = userData.user!.id;
@@ -82,7 +90,12 @@ function NewTour() {
 
       setPhase("Starting 3D generation…");
       setProgress(92);
-      await startProc({ data: { tourId, sourcePaths: storagePaths } });
+      const started = await startProc({ data: { tourId, sourcePaths: storagePaths } });
+      if (!started.ok) {
+        toast.error(started.error, { duration: 12000 });
+        navigate({ to: "/tour/$id", params: { id: tourId } });
+        return;
+      }
 
       setProgress(100);
       toast.success("Uploaded! Your tour is processing.");
