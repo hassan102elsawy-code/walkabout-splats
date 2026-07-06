@@ -49,48 +49,42 @@ function NewTour() {
     setProgress(2);
     setPhase("Preparing…");
     try {
-      const fileNames = files.map((f, i) => `${String(i).padStart(3, "0")}_${f.name.replace(/[^\w.\-]+/g, "_")}`);
-      const created = await create({
-        data: { title: title.trim(), fileNames, captureType: mode },
-      });
-      if (!created.ok) {
-        toast.error(created.error, { duration: 12000 });
+      if (mode === "photos" && (files.length < 20 || files.length > 300)) {
+        toast.error("KIRI requires 20–300 photos.");
         setBusy(false);
         setProgress(0);
         setPhase("");
         return;
       }
-      const { tourId, signedUrls } = created;
+
+      const fileNames = files.map((f, i) => `${String(i).padStart(3, "0")}_${f.name.replace(/[^\w.\-]+/g, "_")}`);
+      const created = await create({
+        data: { title: title.trim(), captureType: mode },
+      });
+      const { tourId } = created;
 
       const { data: userData } = await supabase.auth.getUser();
       const userId = userData.user!.id;
       const storagePaths: string[] = [];
 
-      setPhase("Uploading to Luma…");
+      setPhase("Uploading photos…");
       for (let i = 0; i < files.length; i++) {
         const file = files[i];
         const name = fileNames[i];
-        const url = signedUrls[name];
-        if (!url) throw new Error(`Missing signed URL for ${name}`);
-
-        // Upload to Luma
-        const put = await fetch(url, { method: "PUT", body: file });
-        if (!put.ok) throw new Error(`Upload to Luma failed for ${file.name}`);
-
-        // Archive copy in Supabase Storage
         const storagePath = `${userId}/${tourId}/${name}`;
         const { error: upErr } = await supabase.storage.from("tour-uploads").upload(storagePath, file, {
           upsert: true,
           contentType: file.type || undefined,
         });
-        if (!upErr) storagePaths.push(storagePath);
+        if (upErr) throw new Error(`Upload failed for ${file.name}: ${upErr.message}`);
+        storagePaths.push(storagePath);
 
         setProgress(Math.round(((i + 1) / files.length) * 85));
       }
 
-      setPhase("Starting 3D generation…");
+      setPhase("Sending to KIRI Engine…");
       setProgress(92);
-      const started = await startProc({ data: { tourId, sourcePaths: storagePaths } });
+      const started = await startProc({ data: { tourId, sourcePaths: storagePaths, captureType: mode } });
       if (!started.ok) {
         toast.error(started.error, { duration: 12000 });
         navigate({ to: "/tour/$id", params: { id: tourId } });
