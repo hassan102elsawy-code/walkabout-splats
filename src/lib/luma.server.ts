@@ -27,7 +27,7 @@ export async function lumaCreateCapture(input: {
 }): Promise<LumaCreatedCapture> {
   const body = new URLSearchParams();
   body.set("title", input.title);
-  body.set("Type", input.captureType);
+  body.set("type", input.captureType);
   for (const name of input.fileNames) body.append("fileNames[]", name);
 
   const res = await fetch(`${LUMA_BASE}/captures`, {
