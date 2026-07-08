@@ -99,10 +99,47 @@ export const listTours = createServerFn({ method: "GET" })
   .handler(async ({ context }) => {
     const { data, error } = await context.supabase
       .from("tours")
-      .select("id, title, status, thumbnail_url, embed_url, created_at, error_message")
+      .select("id, title, status, thumbnail_url, embed_url, created_at, error_message, luma_slug")
       .order("created_at", { ascending: false });
     if (error) throw new Error(error.message);
-    return data ?? [];
+    const rows = data ?? [];
+
+    // Opportunistically poll KIRI for any pending tours so the dashboard
+    // reflects completion without the user having to open each tour.
+    const pending = rows.filter(
+      (r) => (r.status === "processing" || r.status === "uploading") && r.luma_slug,
+    );
+    if (pending.length) {
+      const { kiriGetStatus, kiriGetModelZip } = await import("./kiri.server");
+      await Promise.all(
+        pending.map(async (r) => {
+          try {
+            const { status } = await kiriGetStatus(r.luma_slug as string);
+            if (status === 3) {
+              const { modelUrl } = await kiriGetModelZip(r.luma_slug as string);
+              await context.supabase
+                .from("tours")
+                .update({ status: "ready", embed_url: modelUrl })
+                .eq("id", r.id);
+              r.status = "ready";
+              r.embed_url = modelUrl;
+            } else if (status === 2 || status === 5) {
+              await context.supabase
+                .from("tours")
+                .update({
+                  status: "failed",
+                  error_message: status === 5 ? "Model expired" : "KIRI processing failed",
+                })
+                .eq("id", r.id);
+              r.status = "failed";
+            }
+          } catch {
+            // transient — ignore
+          }
+        }),
+      );
+    }
+    return rows;
   });
 
 export const getTour = createServerFn({ method: "GET" })
