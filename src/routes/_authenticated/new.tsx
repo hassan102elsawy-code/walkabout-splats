@@ -72,11 +72,32 @@ function NewTour() {
         const file = files[i];
         const name = fileNames[i];
         const storagePath = `${userId}/${tourId}/${name}`;
-        const { error: upErr } = await supabase.storage.from("tour-uploads").upload(storagePath, file, {
-          upsert: true,
-          contentType: file.type || undefined,
-        });
-        if (upErr) throw new Error(`Upload failed for ${file.name}: ${upErr.message}`);
+
+        let lastErr: unknown = null;
+        let uploaded = false;
+        for (let attempt = 1; attempt <= 3; attempt++) {
+          try {
+            const { error: upErr } = await supabase.storage
+              .from("tour-uploads")
+              .upload(storagePath, file, {
+                upsert: true,
+                contentType: file.type || undefined,
+              });
+            if (upErr) throw upErr;
+            uploaded = true;
+            break;
+          } catch (err) {
+            lastErr = err;
+            // brief backoff for transient network / preview-proxy drops
+            await new Promise((r) => setTimeout(r, 500 * attempt));
+          }
+        }
+        if (!uploaded) {
+          const msg = lastErr instanceof Error ? lastErr.message : "network error";
+          throw new Error(
+            `Upload failed for ${file.name}: ${msg}. If this keeps happening in the preview, try the published URL — the preview iframe sometimes drops large uploads.`,
+          );
+        }
         storagePaths.push(storagePath);
 
         setProgress(Math.round(((i + 1) / files.length) * 85));
