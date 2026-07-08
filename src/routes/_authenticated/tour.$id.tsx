@@ -45,7 +45,7 @@ function TourView() {
         qc.invalidateQueries({ queryKey: ["tour", id] });
         qc.invalidateQueries({ queryKey: ["tours"] });
       } catch {}
-    }, 10000);
+    }, 30000);
     return () => clearInterval(t);
   }, [id, isPending, poll, qc]);
 
@@ -135,8 +135,11 @@ function TourView() {
                 <div>
                   <p className="font-medium">Building your 3D walkthrough…</p>
                   <p className="mt-1 text-sm text-muted-foreground">
-                    KIRI Engine is turning your capture into a 3D Gaussian Splat scene.
-                    This usually takes a few minutes — you can safely leave this page.
+                    KIRI Engine is reconstructing your 3D Gaussian Splat scene.
+                    This typically takes <strong>30 minutes to a few hours</strong> depending on
+                    queue load and the number of photos. You can safely close this page —
+                    we'll keep processing in the background and the tour will appear as
+                    <em> Ready</em> on your dashboard when it's done.
                   </p>
                 </div>
                 <Badge variant="secondary" className="gap-1">
